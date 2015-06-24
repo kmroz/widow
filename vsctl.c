@@ -165,15 +165,16 @@ main(int argc, char **argv)
     db = default_db();
 
     /* db, ovsrec_idl_class, false, false (retry) */
-    idl = ovsdb_idl_create(db, &ovsrec_idl_class, false, true);
+    idl = ovsdb_idl_create(db, &ovsrec_idl_class, false, false);
 
     seqno = ovsdb_idl_get_seqno(idl);
     for (;;) {
         ovsdb_idl_run(idl);
         if (!ovsdb_idl_is_alive(idl)) {
             int retval = ovsdb_idl_get_last_error(idl);
-            printf("%s: database connection failed (%s)",
+            printf("%s: database connection failed (%s)\n",
                    db, ovs_retval_to_string(retval));
+            /* returns json rpc error code (>0) */
             return retval;
         }
 
@@ -183,10 +184,12 @@ main(int argc, char **argv)
         }
 
         if (seqno == ovsdb_idl_get_seqno(idl)) {
+            printf("blocking/waiting\n");
             ovsdb_idl_wait(idl);
             poll_block();
         }
     }
-    
-    return 1;
+
+    /* shouldn't get here */
+    return -1;
 }
