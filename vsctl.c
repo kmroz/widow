@@ -20,6 +20,21 @@ default_db(void)
 }
 
 static void
+ovs_insert_bridge(const struct ovsrec_open_vswitch *ovs,
+                  struct ovsrec_bridge *bridge)
+{
+    struct ovsrec_bridge **bridges;
+    size_t i;
+
+    bridges = xmalloc(sizeof *ovs->bridges * (ovs->n_bridges + 1));
+    for (i = 0; i < ovs->n_bridges; i++) {
+        bridges[i] = ovs->bridges[i];
+    }
+    bridges[ovs->n_bridges] = bridge;
+    ovsrec_open_vswitch_set_bridges(ovs, bridges, ovs->n_bridges + 1);
+    free(bridges);
+}
+
 pre_get_info(struct ovsdb_idl *idl)
 {
     ovsdb_idl_add_column(idl, &ovsrec_open_vswitch_col_bridges);
