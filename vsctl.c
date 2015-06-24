@@ -35,6 +35,77 @@ ovs_insert_bridge(const struct ovsrec_open_vswitch *ovs,
     free(bridges);
 }
 
+void
+_add_br(struct ovsdb_idl_txn *txn, const struct ovsrec_open_vswitch *ovs,
+        const char *br_name)
+{
+    struct ovsrec_port *port;
+    struct ovsrec_bridge *br;
+    struct ovsrec_interface *iface;
+
+    iface = ovsrec_interface_insert(txn);
+    ovsrec_interface_set_name(iface, br_name);
+    ovsrec_interface_set_type(iface, "internal");
+
+    port = ovsrec_port_insert(txn);
+    ovsrec_port_set_name(port, br_name);
+    ovsrec_port_set_interfaces(port, &iface, 1);
+
+    br = ovsrec_bridge_insert(txn);
+    ovsrec_bridge_set_name(br, br_name);
+    ovsrec_bridge_set_ports(br, &port, 1);
+
+    ovs_insert_bridge(ovs, br);
+
+    //post_db_reload_expect_iface(iface);
+}
+
+int
+add_br(struct ovsdb_idl *idl, const char *br_name)
+{
+    struct ovsdb_idl_txn *txn;
+    const struct ovsrec_open_vswitch *ovs;
+    __attribute__((unused)) struct ovsdb_symbol_table *symtab;
+    enum ovsdb_idl_txn_status status;
+    char *error = NULL;
+
+    txn = ovsdb_idl_txn_create(idl);
+
+    ovsdb_idl_txn_add_comment(txn, "%s:%s", __func__, br_name);
+
+    ovs = ovsrec_open_vswitch_first(idl);
+    if (!ovs) {
+        /* XXX add verification that table is empty */
+        ovs = ovsrec_open_vswitch_insert(txn);
+    }
+
+    /* Wait for vswitchd to reload it's config. In ovs-vsctl, this is performed
+     * if wait_for_reload is set (true by default).
+     */
+    ovsdb_idl_txn_increment(txn, &ovs->header_,
+                            &ovsrec_open_vswitch_col_next_cfg);
+
+    symtab = ovsdb_symbol_table_create();
+
+    /* TODO: do the actual bridge addition steps */
+    _add_br(txn, ovs, br_name);
+
+    status = ovsdb_idl_txn_commit_block(txn);
+    error = xstrdup(ovsdb_idl_txn_get_error(txn));
+
+    switch (status) {
+    case TXN_ERROR:
+        printf("transaction error: %s", error);
+        break;
+    default:
+        break;
+    }
+
+    printf("returning ovsdb_idl_txn status (%d)\n", status);
+    return status;
+}
+
+static void
 pre_get_info(struct ovsdb_idl *idl)
 {
     ovsdb_idl_add_column(idl, &ovsrec_open_vswitch_col_bridges);
