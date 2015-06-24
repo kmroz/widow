@@ -167,6 +167,9 @@ main(int argc, char **argv)
     /* db, ovsrec_idl_class, false, false (retry) */
     idl = ovsdb_idl_create(db, &ovsrec_idl_class, false, false);
 
+    /* add columns, etc - per ovs-vsctl.c:run_prerequistes() */
+    run_prerequisites(cmd, idl);
+
     seqno = ovsdb_idl_get_seqno(idl);
     for (;;) {
         ovsdb_idl_run(idl);
@@ -180,7 +183,14 @@ main(int argc, char **argv)
 
         if (seqno != ovsdb_idl_get_seqno(idl)) {
             seqno = ovsdb_idl_get_seqno(idl);
-            printf("now do something with it... \n");
+            if (strcmp(cmd, "add-br") == 0) {
+                ret = add_br(idl, br_name);
+            } else {
+                printf("unsupported command\n");
+                ret = -1;
+            }
+            printf("ret: %d\n", ret);
+            return ret;
         }
 
         if (seqno == ovsdb_idl_get_seqno(idl)) {
