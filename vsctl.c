@@ -19,6 +19,44 @@ default_db(void)
     return def;
 }
 
+static void
+pre_get_info(struct ovsdb_idl *idl)
+{
+    ovsdb_idl_add_column(idl, &ovsrec_open_vswitch_col_bridges);
+
+    ovsdb_idl_add_column(idl, &ovsrec_bridge_col_name);
+    ovsdb_idl_add_column(idl, &ovsrec_bridge_col_controller);
+    ovsdb_idl_add_column(idl, &ovsrec_bridge_col_fail_mode);
+    ovsdb_idl_add_column(idl, &ovsrec_bridge_col_ports);
+
+    ovsdb_idl_add_column(idl, &ovsrec_port_col_name);
+    ovsdb_idl_add_column(idl, &ovsrec_port_col_fake_bridge);
+    ovsdb_idl_add_column(idl, &ovsrec_port_col_tag);
+    ovsdb_idl_add_column(idl, &ovsrec_port_col_interfaces);
+
+    ovsdb_idl_add_column(idl, &ovsrec_interface_col_name);
+    ovsdb_idl_add_column(idl, &ovsrec_interface_col_ofport);
+}
+
+static void
+run_prerequisites(const char *cmd, struct ovsdb_idl *idl)
+{
+    bool wait_for_reload = true;
+
+    ovsdb_idl_add_table(idl, &ovsrec_table_open_vswitch);
+    if (wait_for_reload) {
+        ovsdb_idl_add_column(idl, &ovsrec_open_vswitch_col_cur_cfg);
+    }
+
+    if (strcmp(cmd, "add-br") == 0) {
+        /* This needs to be run before the first call to ovsdb_idl_run()
+         * to ensure that column additions are done first. Otherwise,
+         * we will blow an assertion in ovsdb_idl_get_mode().
+         */
+        pre_get_info(idl);
+    }
+}
+
 int
 main(int argc, char **argv)
 {
