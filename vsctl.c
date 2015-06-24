@@ -20,10 +20,21 @@ default_db(void)
 }
 
 int
-main (void)
+main(int argc, char **argv)
 {
     struct ovsdb_idl *idl;
     unsigned int seqno;
+    int ret;
+    char *cmd;
+    char *br_name;
+
+    if (argc < 3) {
+        printf("not enough arguments\n");
+        return -1;
+    }
+
+    cmd = argv[1];
+    br_name = argv[2];
 
     ovsrec_init();
 
