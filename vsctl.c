@@ -9,6 +9,8 @@
 /* --db: The database server to contact. */
 static const char *db;
 
+bool wait_for_reload = true;
+
 static char *
 default_db(void)
 {
@@ -82,8 +84,9 @@ do_br_op(struct ovsdb_idl *idl, const char *cmd, const char *br_name)
     /* Wait for vswitchd to reload it's config. In ovs-vsctl, this is performed
      * if wait_for_reload is set (true by default).
      */
-    ovsdb_idl_txn_increment(txn, &ovs->header_,
-                            &ovsrec_open_vswitch_col_next_cfg);
+    if (wait_for_reload)
+        ovsdb_idl_txn_increment(txn, &ovs->header_,
+                                &ovsrec_open_vswitch_col_next_cfg);
 
     symtab = ovsdb_symbol_table_create();
 
@@ -128,8 +131,6 @@ pre_get_info(struct ovsdb_idl *idl)
 static void
 run_prerequisites(const char *cmd, struct ovsdb_idl *idl)
 {
-    bool wait_for_reload = true;
-
     ovsdb_idl_add_table(idl, &ovsrec_table_open_vswitch);
     if (wait_for_reload) {
         ovsdb_idl_add_column(idl, &ovsrec_open_vswitch_col_cur_cfg);
