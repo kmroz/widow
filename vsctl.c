@@ -61,7 +61,7 @@ _add_br(struct ovsdb_idl_txn *txn, const struct ovsrec_open_vswitch *ovs,
 }
 
 int
-add_br(struct ovsdb_idl *idl, const char *br_name)
+do_br_op(struct ovsdb_idl *idl, const char *cmd, const char *br_name)
 {
     struct ovsdb_idl_txn *txn;
     const struct ovsrec_open_vswitch *ovs;
@@ -87,8 +87,9 @@ add_br(struct ovsdb_idl *idl, const char *br_name)
 
     symtab = ovsdb_symbol_table_create();
 
-    /* TODO: do the actual bridge addition steps */
-    _add_br(txn, ovs, br_name);
+    if (strcmp(cmd, "add-br") == 0) {
+        _add_br(txn, ovs, br_name);
+    }
 
     status = ovsdb_idl_txn_commit_block(txn);
     error = xstrdup(ovsdb_idl_txn_get_error(txn));
@@ -183,8 +184,9 @@ main(int argc, char **argv)
 
         if (seqno != ovsdb_idl_get_seqno(idl)) {
             seqno = ovsdb_idl_get_seqno(idl);
-            if (strcmp(cmd, "add-br") == 0) {
-                ret = add_br(idl, br_name);
+            if ((strcmp(cmd, "add-br") == 0) ||
+                (strcmp(cmd, "del-br") == 0)) {
+                ret = do_br_op(idl, cmd, br_name);
             } else {
                 printf("unsupported command\n");
                 ret = -1;
