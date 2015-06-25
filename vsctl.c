@@ -67,8 +67,10 @@ do_br_op(struct ovsdb_idl *idl, const char *cmd, const char *br_name)
 {
     struct ovsdb_idl_txn *txn;
     const struct ovsrec_open_vswitch *ovs;
-    __attribute__((unused)) struct ovsdb_symbol_table *symtab;
+    struct ovsdb_symbol_table *symtab;
     enum ovsdb_idl_txn_status status;
+    struct shash_node *node;
+    int64_t next_cfg = 0;
     char *error = NULL;
 
     txn = ovsdb_idl_txn_create(idl);
@@ -94,16 +96,115 @@ do_br_op(struct ovsdb_idl *idl, const char *cmd, const char *br_name)
         _add_br(txn, ovs, br_name);
     }
 
+    SHASH_FOR_EACH (node, &symtab->sh) {
+        struct ovsdb_symbol *symbol = node->data;
+        if (!symbol->created) {
+            /* fatal */
+            printf("row id \"%s\" is referenced but never created (e.g. "
+                   "with \"-- --id=%s create ...\")\n",
+                   node->name, node->name);
+            goto error_out;
+        }
+        if (!symbol->strong_ref) {
+            if (!symbol->weak_ref) {
+                /* warning */
+                printf("row id \"%s\" was created but no reference to it "
+                       "was inserted, so it will not actually appear in "
+                       "the database\n", node->name);
+            } else {
+                /* warning */
+                printf("row id \"%s\" was created but only a weak "
+                       "reference to it was inserted, so it will not "
+                       "actually appear in the database\n", node->name);
+            }
+        }
+    }
+
     status = ovsdb_idl_txn_commit_block(txn);
+    if (wait_for_reload && status == TXN_SUCCESS) {
+        next_cfg = ovsdb_idl_txn_get_increment_new_value(txn);
+    }
+    if (status == TXN_UNCHANGED || status == TXN_SUCCESS) {
+        /* Perform whatever postprocess work is depicted for the command. For
+         * adding and deleting bridges and ports, no postprocess work is needed
+         * according to ovs-vsctl.c.
+         */
+        ;
+    }
     error = xstrdup(ovsdb_idl_txn_get_error(txn));
 
     switch (status) {
+    case TXN_UNCOMMITTED:
+    case TXN_INCOMPLETE:
+        /* OVS_NOT_REACHED() == abort() - we will just return an error. */
+        goto error_out;
+
+    case TXN_ABORTED:
+        /* Should not happen--we never call ovsdb_idl_txn_abort(). */
+        printf("transaction aborted");
+        goto error_out;
+
+    case TXN_UNCHANGED:
+    case TXN_SUCCESS:
+        break;
+
+    case TXN_TRY_AGAIN:
+        goto try_again;
+
     case TXN_ERROR:
-        printf("transaction error: %s", error);
-        break;
+        printf("transaction error: %s\n", error);
+        goto error_out;
+
     default:
-        break;
+        /* OVS_NOT_REACHED() == abort() - we will just return an error. */
+        goto error_out;
     }
+    free(error);
+
+    if (wait_for_reload && status != TXN_UNCHANGED) {
+        /* Even, if --retry flag was not specified, ovs-vsctl still
+         * has to retry to establish OVSDB connection, if wait_for_reload
+         * was set.  Otherwise, ovs-vsctl would end up waiting forever
+         * until cur_cfg would be updated. */
+        ovsdb_idl_enable_reconnect(idl);
+        for (;;) {
+            ovsdb_idl_run(idl);
+            OVSREC_OPEN_VSWITCH_FOR_EACH (ovs, idl) {
+                if (ovs->cur_cfg >= next_cfg) {
+                    /* TODO: look into this functions.
+                     * post_db_reload_do_checks(&ctx);
+                     */
+                    goto done;
+                }
+            }
+            ovsdb_idl_wait(idl);
+            poll_block();
+        }
+    done: ;
+    }
+
+    ovsdb_idl_txn_destroy(txn);
+    ovsdb_idl_destroy(idl);
+    return 0;
+
+error_out:
+    free(error);
+    ovsdb_idl_txn_destroy(txn);
+    ovsdb_idl_destroy(idl);
+    return -1;
+
+try_again:
+    /* Our transaction needs to be rerun, or a prerequisite was not met.  Free
+     * resources and return so that the caller can try again. */
+    if (txn) {
+        ovsdb_idl_txn_abort(txn);
+        ovsdb_idl_txn_destroy(txn);
+        /* TODO: we don't have a global idl_txn struct - need it?
+         * the_idl_txn = NULL;
+         */
+    }
+    ovsdb_symbol_table_destroy(symtab);
+    free(error);
 
     printf("returning ovsdb_idl_txn status (%d)\n", status);
     return status;
@@ -192,6 +293,9 @@ main(int argc, char **argv)
                 printf("unsupported command\n");
                 ret = -1;
             }
+
+            if (ret == TXN_TRY_AGAIN)
+                continue;
             printf("ret: %d\n", ret);
             return ret;
         }
